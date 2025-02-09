@@ -1,0 +1,81 @@
+services:
+  # Spring Boot Backend Service
+  backend:
+    build:
+      context: ./ems-backend # Path to the backend directory
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev  # Optional, set to prod for production environment
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/emsdb  # Database URL
+      - SPRING_DATASOURCE_USERNAME=root  # Database username
+      - SPRING_DATASOURCE_PASSWORD=root  # Database password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update  # Hibernate auto DDL management
+    depends_on:
+      mysql:  # Ensure MySQL is started before the backend
+        condition: service_healthy  # Wait for MySQL to be healthy before starting
+
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      retries: 5
+
+  # React Frontend Service
+  frontend:
+    build:
+      context: ./ems-frontend  # Path to the frontend directory
+      args:
+        - VITE_API_URL=http://localhost:8080/api/v1  # Set the backend API URL dynamically
+    ports:
+      - "3000:80"  # Expose frontend on port 80
+    depends_on:
+      - backend  # Ensure frontend starts after backend
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80" ]
+      interval: 30s
+      retries: 5
+
+  # MySQL Database Service
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root  # MySQL root password
+      MYSQL_DATABASE: emsdb  # Database name for the backend
+    ports:
+      - "3306:3306"  # Expose MySQL on port 3306
+    volumes:
+      - mysql-data:/var/lib/mysql  # Persist database data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=localhost", "--user=root", "--password=root"]
+      interval: 30s
+      retries: 5
+      start_period: 30s  # Allow some time for MySQL to start up
+
+  # Nginx Reverse Proxy Service
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf  # Mount custom Nginx configuration
+    ports:
+      - "8080:80"  # Expose Nginx on port 80 (host will access it)
+    depends_on:
+      - backend  # Ensure Nginx starts after the backend
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      retries: 5
+
+networks:
+  app-network:
+    name: ems-app-network
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
